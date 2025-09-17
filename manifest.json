@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Grok Ctrl+Enter Sender",
+  "version": "1.0.0",
+  "description": "Use Ctrl+Enter to send messages on grok.com; Enter for line breaks only.",
+  "content_scripts": [
+    {
+      "matches": ["https://grok.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [],
+  "host_permissions": ["https://grok.com/*"]
+}
