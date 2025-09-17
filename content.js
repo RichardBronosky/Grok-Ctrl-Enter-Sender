@@ -1,43 +1,114 @@
 (function() {
   'use strict';
 
-  // Wait for the page to fully load and find the chat input
+  let input = null;
+  let sendButton = null;
+  let isInitialized = false;
+
   function init() {
-    const input = document.querySelector('textarea'); // Adjust selector if needed, e.g., 'textarea.prompt-textarea' or '[data-testid="message-input"]'
+    if (isInitialized) return;
+
+    // Target Grok's contenteditable input and submit button
+    input = document.querySelector('div.tiptap.ProseMirror[contenteditable="true"]');
+    sendButton = document.querySelector('button[type="submit"]');
+
     if (!input) {
-      // Retry after a short delay if input not found yet (dynamic load)
+      console.log('Grok Ctrl+Enter: Input not found, retrying...');
       setTimeout(init, 1000);
       return;
     }
 
-    // Remove any existing listeners to avoid duplicates
-    input.removeEventListener('keydown', handleKeydown);
+    console.log('Grok Ctrl+Enter: Input found:', input);
+    if (sendButton) {
+      console.log('Grok Ctrl+Enter: Send button found:', sendButton);
+    } else {
+      console.log('Grok Ctrl+Enter: Send button not found');
+    }
 
-    // Add the keydown listener
+    // Remove existing listeners
+    input.removeEventListener('keydown', handleKeydown);
     input.addEventListener('keydown', handleKeydown);
+
+    // Block form submission on Enter
+    const form = input.closest('form');
+    if (form) {
+      form.removeEventListener('submit', blockFormSubmit);
+      form.addEventListener('submit', blockFormSubmit);
+      form.removeEventListener('keydown', blockFormKeydown);
+      form.addEventListener('keydown', blockFormKeydown);
+      console.log('Grok Ctrl+Enter: Form found, blocking Enter submit');
+    }
+
+    isInitialized = true;
+  }
+
+  function blockFormSubmit(event) {
+    if (!event.isTrusted || !event.detail?.isCtrlEnter) {
+      event.preventDefault();
+      event.stopPropagation();
+      console.log('Grok Ctrl+Enter: Blocked form submission');
+    }
+  }
+
+  function blockFormKeydown(event) {
+    if (event.key === 'Enter' && !event.ctrlKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      console.log('Grok Ctrl+Enter: Blocked form Enter keydown');
+    }
   }
 
   function handleKeydown(event) {
-    if (event.key === 'Enter') {
-      if (event.ctrlKey) {
-        // Ctrl+Enter: Submit the form/message
-        event.preventDefault(); // Prevent default line break
-        const form = input.closest('form') || input.parentElement;
-        if (form && form.submit) {
-          form.submit(); // Trigger native submit
-        } else {
-          // Fallback: Dispatch a submit event if no form
-          const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-          form.dispatchEvent(submitEvent);
-        }
+    if (event.key !== 'Enter') return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    console.log('Grok Ctrl+Enter: Enter key detected, ctrlKey:', event.ctrlKey, 'shiftKey:', event.shiftKey);
+
+    if (!input) {
+      console.log('Grok Ctrl+Enter: Input not defined, skipping');
+      return;
+    }
+
+    if (event.ctrlKey) {
+      console.log('Grok Ctrl+Enter: Ctrl+Enter pressed, attempting submit');
+      sendButton = document.querySelector('button[type="submit"]');
+      if (sendButton) {
+        console.log('Grok Ctrl+Enter: Clicking send button');
+        sendButton.click();
       } else {
-        // Enter alone: Allow line break (default), but prevent if it's a form submit
-        if (input.form) {
-          event.preventDefault(); // Block form submit, let default insert newline
-          input.value += '\n';
-          input.dispatchEvent(new Event('input', { bubbles: true })); // Trigger input event for React/etc.
+        console.log('Grok Ctrl+Enter: No button, trying form submit');
+        const form = input.closest('form');
+        if (form) {
+          const submitEvent = new CustomEvent('submit', { bubbles: true, cancelable: true, detail: { isCtrlEnter: true } });
+          form.dispatchEvent(submitEvent);
+        } else {
+          console.log('Grok Ctrl+Enter: No form/button, dispatching fallback');
+          const keyEvent = new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true });
+          input.dispatchEvent(keyEvent);
         }
-        // If no form, default Enter already does line break—no action needed
+      }
+    } else {
+      console.log('Grok Ctrl+Enter: Enter or Shift+Enter, adding newline');
+      try {
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          const br = document.createElement('br');
+          range.insertNode(br);
+          range.setStartAfter(br);
+          range.setEndAfter(br);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          console.log('Grok Ctrl+Enter: No selection, falling back to native Enter');
+          const nativeEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+          input.dispatchEvent(nativeEnter);
+        }
+      } catch (e) {
+        console.log('Grok Ctrl+Enter: Error adding newline:', e.message);
       }
     }
   }
@@ -49,9 +120,16 @@
     init();
   }
 
-  // Re-init on dynamic content changes (e.g., if Grok reloads chat)
+  // Re-init on DOM changes, debounced
+  let debounceTimeout = null;
   const observer = new MutationObserver(() => {
-    init();
+    if (debounceTimeout) clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(() => {
+      if (!isInitialized) {
+        console.log('Grok Ctrl+Enter: DOM changed, reinitializing');
+        init();
+      }
+    }, 500);
   });
   observer.observe(document.body, { childList: true, subtree: true });
 })();
